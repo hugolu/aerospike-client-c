@@ -97,10 +97,10 @@ TARGETS = fs2as as2fs
 
 all: $(TARGETS)
 
-as2fs: as2fs.c
+as2fs: as2fs.c as_utils.c
 	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS)
 
-fs2as: fs2as.c
+fs2as: fs2as.c as_utils.c
 	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS)
 
 .PHONY: clean
