@@ -1,4 +1,4 @@
-inotify: inotify.cpp
+inotify: test.c inotify_utils.cpp
 	g++ $^ -o $@
 
 clean:

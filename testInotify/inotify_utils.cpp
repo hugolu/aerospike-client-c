@@ -1,7 +1,5 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/inotify.h>
@@ -9,47 +7,40 @@
 #include <dirent.h>
 #include <libgen.h>
 
+#include "inotify_utils.h"
+
 #include <map>
 #include <string>
 using namespace std;
 
-static void watch_add(int fd, char *dir, int mask);
-static void watch_mon(int fd);
-static void do_action(int fd, struct inotify_event *event);
-
-map < int, string > dirset;
-int g_off;
+static map < int, string > dirset;
+static fcreat_fun _fcreat;
 
 #define MASK        (IN_MODIFY | IN_CREATE | IN_DELETE)
 #define NEWDIR      (IN_CREATE | IN_ISDIR)
-
 #define EVENT_SIZE  sizeof(struct inotify_event)
 #define BUF_SIZE    ((EVENT_SIZE + 16) << 10)
 
-int main(int argc, char **argv)
+void watch_add(int fd, char *dir, int mask);
+void watch_mon(int fd);
+void do_action(int fd, struct inotify_event *event);
+
+void watch_dir(char *dir, fcreat_fun fcreat)
 {
-    char root[512];
     int fd;
 
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s <dir>\n", argv[0]);
-        exit(1);
-    }
-    sprintf(root, "%s/%s", dirname(argv[1]), basename(argv[1]));
-    g_off = strlen(root) + 1;
+    _fcreat = fcreat;
 
     fd = inotify_init();
     if (fd < 0) {
         perror("inotify_init");
-        exit(-1);
+        return;
     }
-    watch_add(fd, root, MASK);
+    watch_add(fd, dir, MASK);
     watch_mon(fd);
-
-    return 0;
 }
 
-static void watch_add(int fd, char *dir, int mask)
+void watch_add(int fd, char *dir, int mask)
 {
     int wd;
     char subdir[512];
@@ -61,7 +52,7 @@ static void watch_add(int fd, char *dir, int mask)
 
     if ((odir = opendir(dir)) == NULL) {
         perror("fail to open root dir");
-        exit(1);
+        return;
     }
     while ((dent = readdir(odir)) != NULL) {
         if (strcmp(dent->d_name, ".") == 0 || strcmp(dent->d_name, "..") == 0)
@@ -74,7 +65,7 @@ static void watch_add(int fd, char *dir, int mask)
     closedir(odir);
 }
 
-static void watch_mon(int fd)
+void watch_mon(int fd)
 {
     int i, length;
     char buf[BUF_SIZE];
@@ -91,22 +82,19 @@ static void watch_mon(int fd)
         }
     }
     close(fd);
-    exit(1);
 }
 
-static void do_action(int fd, struct inotify_event *event)
+void do_action(int fd, struct inotify_event *event)
 {
-    char path[512], *key;
+    char path[512];
 
     if (!(event->mask & IN_CREATE))
         return;
 
     sprintf(path, "%s/%s", dirset.find(event->wd)->second.c_str(), event->name);
-    key = path + g_off;
-
     if ((event->mask & IN_ISDIR)) {
         watch_add(fd, path, MASK);
     } else {
-        printf("%s was created.\n", key);
+        _fcreat(path);
     }
 }
