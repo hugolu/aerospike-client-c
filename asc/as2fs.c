@@ -10,23 +10,27 @@
 
 #include "as_utils.h"
 
+void chkdir(char *path);
+
 int
 main(int argc, char *argv[])
 {
   aerospike as;
-  char *file, *ns, *key;
+  char *ns, *key, *dir, file[512];
   void *mem;
   int size;
   int fd;
   int rc;
 
   if (argc < 3) {
-    printf("Usage: %s <ns>:<key> <file>\n", basename(argv[0]));
+    printf("Usage: %s <ns>:<key> <dir>\n", basename(argv[0]));
     exit(-1);
   }
   ns = strtok(argv[1], ":");
   key = strtok(NULL, ":");
-  file = argv[2];
+  dir = argv[2];
+  sprintf(file, "%s/%s", dir, key);
+  chkdir(file);
 
   // Perpare the key
   as_key as_key;
@@ -60,7 +64,18 @@ main(int argc, char *argv[])
   return 0;
 }
 
-//==========================================================
-// Helpers
-//
+void
+chkdir(char *path)
+{
+    char buf[512], *dir;
 
+    strcpy(buf, path);
+    dir = dirname(buf);
+
+    if (strcmp(dir, "/") == 0)
+        return;
+    if (strchr(dir, '/'))
+        chkdir(dir);
+
+    mkdir(dir, 0755);
+}
