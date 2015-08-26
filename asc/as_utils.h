@@ -14,6 +14,7 @@
 
 #define ERROR(FORMAT, ...) printf("[ERROR] " FORMAT "\n", __VA_ARGS__)
 #define WARN(FORMAT, ...) printf("[WARN] " FORMAT "\n", __VA_ARGS__)
+#define INFO(FORMAT, ...) printf("[INFO] " FORMAT "\n", __VA_ARGS__)
 
 bool as_init(aerospike* p_as);
 bool as_exit(aerospike* p_as);
