@@ -104,17 +104,14 @@ build: $(TARGETS)
 clean:
 	@rm -f *.o $(TARGETS)
 
-example_utils.o: example_utils.c
-	$(CC) $(CFLAGS) -o $@ -c $^
-
-test_all: test.c example_utils.o
+test_all: test.c
 	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS) -DTEST_CLEAR -DTEST_WRITE -DTEST_READ
 
-test_clear: test.c example_utils.o
+test_clear: test.c
 	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS) -DTEST_CLEAR
 
-test_write: test.c example_utils.o
+test_write: test.c
 	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS) -DTEST_WRITE
 
-test_read: test.c example_utils.o
+test_read: test.c
 	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS) -DTEST_READ
