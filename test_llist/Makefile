@@ -93,7 +93,7 @@ endif
 ##  MAIN TARGETS                                                             ##
 ###############################################################################
 
-TARGETS = test_all test_clear test_write test_read
+TARGETS = test
 
 all: build
 
@@ -107,14 +107,5 @@ clean:
 example_utils.o: example_utils.c
 	$(CC) $(CFLAGS) -o $@ -c $^
 
-test_all: test.c example_utils.o
-	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS) -DTEST_CLEAR -DTEST_WRITE -DTEST_READ
-
-test_clear: test.c example_utils.o
-	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS) -DTEST_CLEAR
-
-test_write: test.c example_utils.o
-	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS) -DTEST_WRITE
-
-test_read: test.c example_utils.o
-	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS) -DTEST_READ
+test: test.c example_utils.o
+	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS)
