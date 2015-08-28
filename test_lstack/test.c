@@ -98,7 +98,7 @@ main(int argc, char* argv[])
 	assert (aerospike_lstack_push(&as, &err, NULL, &g_key, &lstack, (const as_val*)&sval) == AEROSPIKE_OK);
 
     // Push bytes
-    char buf[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    uint8_t buf[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
     as_bytes_init_wrap(&bval, buf, 16, false);
     assert (aerospike_lstack_push(&as, &err, NULL, &g_key, &lstack, (const as_val*)&bval) == AEROSPIKE_OK);
 
@@ -141,6 +141,7 @@ main(int argc, char* argv[])
 	assert (aerospike_lstack_peek(&as, &err, NULL, &g_key, &lstack2, 10, &p_list) == AEROSPIKE_OK);
 
 	// See if the elements match what we expect.
+#if 0
 	as_arraylist_iterator_init(&it, (const as_arraylist*)p_list);
 	while (as_arraylist_iterator_has_next(&it)) {
 		const as_val* p_val = as_arraylist_iterator_next(&it);
@@ -149,6 +150,16 @@ main(int argc, char* argv[])
 		LOG("   peek - type = %d, value = %s", as_val_type(p_val), p_str);
 		free(p_str);
 	}
+#else
+    const as_arraylist* p_array = (const as_arraylist*)p_list;
+    int i;
+    for (i = 0; i < p_array->size; i++) {
+        const as_val* p_val = p_array->elements[i];
+		char* p_str = as_val_tostring(p_val);
+		LOG("   peek - type = %d, value = %s", as_val_type(p_val), p_str);
+		free(p_str);
+    }
+#endif
 	as_list_destroy(p_list);
     p_list = NULL;
 

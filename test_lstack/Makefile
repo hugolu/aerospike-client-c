@@ -93,7 +93,7 @@ endif
 ##  MAIN TARGETS                                                             ##
 ###############################################################################
 
-TARGETS = test
+TARGETS = test test2
 
 all: build
 
@@ -108,4 +108,7 @@ example_utils.o: example_utils.c
 	$(CC) $(CFLAGS) -o $@ -c $^
 
 test: test.c example_utils.o
+	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS)
+
+test2: test2.c example_utils.o
 	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS)
