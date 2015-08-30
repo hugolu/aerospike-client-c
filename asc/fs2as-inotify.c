@@ -8,7 +8,7 @@
 #include <string.h>
 #include <libgen.h>
 
-#include "as_utils.h"
+#include "asc_utils.h"
 #include "inotify_utils.h"
 
 void fcreat(char *file);
@@ -32,9 +32,9 @@ int main(int argc, char *argv[])
     sprintf(root, "%s/%s", dirname(dir), basename(dir));
     _offset = strlen(root) + 1;
 
-    as_init(&_as);
+    asc_init(&_as);
     watch_dir(root, fcreat);
-    as_exit(&_as);
+    asc_exit(&_as);
 
     return 0;
 }
@@ -53,7 +53,7 @@ fs2as(aerospike *as, char *file, char *ns, char *key)
 {
     struct stat st;
     int fd, size;
-    uint8_t *mem;
+    char *mem;
     int rc;
 
     rc = stat(file, &st);
@@ -69,23 +69,14 @@ fs2as(aerospike *as, char *file, char *ns, char *key)
         return -1;
     }
 
-    mem = (uint8_t *)mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
+    mem = (char *)mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
     if (mem == MAP_FAILED) {
         ERROR("cannot mmap file %s", file);
         return -1;
     }
 
-    // Perpare the key
-    as_key as_key;
-    as_key_init_str(&as_key, ns, SET, key);
-
-    // Prepare the record
-    as_record as_rec;
-    as_record_inita(&as_rec, 1);
-    as_record_set_raw(&as_rec, BIN, mem, size);
-
     // Write to DB
-    as_write(as, &as_key, &as_rec);
+    asc_write(as, ns, key, mem, size);
 
     munmap(mem, size);
     close(fd);

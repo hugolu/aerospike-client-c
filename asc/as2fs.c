@@ -8,7 +8,7 @@
 #include <string.h>
 #include <libgen.h>
 
-#include "as_utils.h"
+#include "asc_utils.h"
 
 void chkdir(char *path);
 
@@ -19,7 +19,6 @@ int main(int argc, char *argv[])
     void *mem;
     int size;
     int fd;
-    int rc;
 
     if (argc < 3) {
         printf("Usage: %s <ns>:<key> <dir>\n", basename(argv[0]));
@@ -31,35 +30,32 @@ int main(int argc, char *argv[])
     sprintf(file, "%s/%s", dir, key);
     chkdir(file);
 
-    // Perpare the key
-    as_key as_key;
-    as_key_init_str(&as_key, ns, SET, key);
+    // get file size
+    asc_init(&as);
+    size = asc_size(&as, ns, key);
 
-    // Prepare the record
-    as_record *p_rec = NULL;
-
-    // read from database
-    as_init(&as);
-    as_read(&as, &as_key, &p_rec);
-    as_exit(&as);
-
-    size = p_rec->bins.entries[0].value.bytes.size;
-    mem = p_rec->bins.entries[0].value.bytes.value;
-
-    // write file
-    fd = creat(file, 0644);
+    // create the file
+    fd = open(file, O_CREAT|O_TRUNC|O_RDWR, 0644);
     if (fd < 0) {
         ERROR("cannot open file %s", file);
         return -1;
     }
-    rc = write(fd, mem, size);
-    if (rc < 0) {
-        ERROR("cannot write file %s", file);
+    lseek(fd, size-1, SEEK_CUR);
+    write(fd, "\0", 1);
+    mem = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+    if (mem == MAP_FAILED) {
+        ERROR("cannot mmap file %s", file);
         return -1;
     }
-    close(fd);
 
-    as_record_destroy(p_rec);
+    // read the record
+    asc_read(&as, ns, key, mem, size);
+
+    // close
+    munmap(mem, size);
+    close(fd);
+    asc_exit(&as);
+
     return 0;
 }
 

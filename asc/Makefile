@@ -97,13 +97,13 @@ TARGETS = fs2as fs2as-inotify as2fs
 
 all: $(TARGETS)
 
-as2fs: as2fs.c as_utils.c
+as2fs: as2fs.c asc_utils.c
 	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS)
 
-fs2as: fs2as.c as_utils.c
+fs2as: fs2as.c asc_utils.c
 	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS)
 
-fs2as-inotify: fs2as-inotify.c as_utils.c inotify_utils.cpp
+fs2as-inotify: fs2as-inotify.c asc_utils.c inotify_utils.cpp
 	g++ -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS)
 
 .PHONY: clean

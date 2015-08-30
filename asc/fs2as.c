@@ -8,7 +8,7 @@
 #include <string.h>
 #include <libgen.h>
 
-#include "as_utils.h"
+#include "asc_utils.h"
 
 int fs2as(aerospike *as, char *file, char *ns, char *key);
 
@@ -26,9 +26,9 @@ int main(int argc, char *argv[])
     key = strtok(NULL, ":");
 
     // write to database
-    as_init(&as);
+    asc_init(&as);
     fs2as(&as, file, ns, key);
-    as_exit(&as);
+    asc_exit(&as);
 
     return 0;
 }
@@ -60,17 +60,8 @@ fs2as(aerospike *as, char *file, char *ns, char *key)
         return -1;
     }
 
-    // Perpare the key
-    as_key as_key;
-    as_key_init_str(&as_key, ns, SET, key);
-
-    // Prepare the record
-    as_record as_rec;
-    as_record_inita(&as_rec, 1);
-    as_record_set_raw(&as_rec, BIN, mem, size);
-
     // Write to DB
-    as_write(as, &as_key, &as_rec);
+    asc_write(as, ns, key, mem, size);
 
     munmap(mem, size);
     close(fd);
