@@ -28,7 +28,7 @@
 #define MIN(A, B) ((A) < (B) ? (A) : (B))
 
 #define CHUNK_SIZE  (512*1024)
-#define BUFFER_SIZE (8*CHUNK_SIZE)
+#define BUFFER_SIZE ((8*CHUNK_SIZE) - 1024)
 
 bool asc_raw_write(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size);
 bool asc_raw_read(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size);
@@ -89,23 +89,25 @@ main(int argc, char* argv[])
 bool
 asc_raw_write(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
 {
-    as_ldt lstack;
-    as_bytes *p_bval;
     as_error err;
     as_status status;
-    uint32_t cnt = (size+(CHUNK_SIZE-1))/CHUNK_SIZE;
-    uint32_t offset;
+
+    uint32_t lstack_size = (size+(CHUNK_SIZE-1))/CHUNK_SIZE;
+    uint32_t offset, chksize;
 
     // Create a large stack object to use
+    as_ldt lstack;
 	as_ldt_init(&lstack, "data", AS_LDT_LSTACK, NULL);
 
     // Make arraylist
     as_arraylist vals;
-    as_arraylist_inita(&vals, cnt);
+    as_arraylist_inita(&vals, lstack_size);
 
-    p_bval = alloca(cnt * sizeof(as_bytes));
-    for (offset = 0; offset < size; offset += CHUNK_SIZE, p_bval++) {
-        as_bytes_init_wrap(p_bval, buf + offset, CHUNK_SIZE, false);
+    as_bytes *p_bval;
+    p_bval = alloca(lstack_size * sizeof(as_bytes));
+    for (offset = 0; offset < size; offset += chksize, p_bval++) {
+        chksize = MIN(size - offset, CHUNK_SIZE);
+        as_bytes_init_wrap(p_bval, buf + offset, chksize, false);
         as_arraylist_insert_bytes(&vals, 0, p_bval);
     }
 
@@ -147,14 +149,14 @@ asc_raw_size(aerospike* p_as, as_key* p_key, uint32_t *size)
 bool
 asc_raw_read(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
 {
-    as_ldt lstack;
     as_status status;
     as_error err;
-	as_list* p_list = NULL;
+
     uint32_t lstack_size;
     uint32_t offset, chksize;
 
     // Create a large stack object to use
+    as_ldt lstack;
 	as_ldt_init(&lstack, "data", AS_LDT_LSTACK, NULL);
 
     // Get stack size
@@ -165,6 +167,7 @@ asc_raw_read(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
     }
 
 	// Peek all the values back again.
+	as_list* p_list = NULL;
 	status = aerospike_lstack_peek(p_as, &err, NULL, p_key, &lstack, lstack_size, &p_list);
     if (status != AEROSPIKE_OK) {
         ERROR("aerospike_lstack_peek() returned %d - %s", err.code, err.message);
