@@ -30,9 +30,9 @@
 #define CHUNK_SIZE  (512*1024)
 #define BUFFER_SIZE (8*CHUNK_SIZE)
 
-as_status asc_raw_write(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size);
-int asc_raw_read(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size);
-as_status asc_raw_size(aerospike* p_as, as_key* p_key, uint32_t *size);
+bool asc_raw_write(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size);
+bool asc_raw_read(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size);
+bool asc_raw_size(aerospike* p_as, as_key* p_key, uint32_t *size);
 
 //==========================================================
 // Large Stack Data Example
@@ -45,7 +45,6 @@ int
 main(int argc, char* argv[])
 {
 	aerospike as;
-    as_status status;
 	as_error err;
 	uint32_t size;
 
@@ -67,17 +66,14 @@ main(int argc, char* argv[])
     aerospike_key_remove(&as, &err, NULL, &g_key);
 
     // Write bytes
-    status = asc_raw_write(&as, &g_key, wbuf, BUFFER_SIZE);
-    assert(status == AEROSPIKE_OK);
+    assert(asc_raw_write(&as, &g_key, wbuf, BUFFER_SIZE) == true);
 
 	// Count bytes written
-    status = asc_raw_size(&as, &g_key, &size);
-    assert (status == AEROSPIKE_OK);
+    assert(asc_raw_size(&as, &g_key, &size) == true);
 	LOG("%d bytes pushed", size);
 
     // Read bytes
-    status = asc_raw_read(&as, &g_key, rbuf, BUFFER_SIZE);
-    assert (status == AEROSPIKE_OK);
+    assert(asc_raw_read(&as, &g_key, rbuf, BUFFER_SIZE) == true);
 
 	// Cleanup and disconnect from the database cluster.
 	aerospike_close(&as, &err);
@@ -90,7 +86,7 @@ main(int argc, char* argv[])
 	return 0;
 }
 
-as_status
+bool
 asc_raw_write(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
 {
     as_ldt lstack;
@@ -117,7 +113,7 @@ asc_raw_write(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
     status = aerospike_lstack_push_all(p_as, &err, NULL, p_key, &lstack, (as_list *)&vals);
     if (status != AEROSPIKE_OK) {
         ERROR("aerospike_lstack_push_all() - returned %d - %s", err.code, err.message);
-        return status;
+        return false;
     }
 
     // Write metadata
@@ -126,10 +122,10 @@ asc_raw_write(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
     as_record_set_int64(&rec, "size", size);
     aerospike_key_put(p_as, &err, NULL, p_key, &rec);
 
-    return AEROSPIKE_OK;
+    return true;
 }
 
-as_status
+bool
 asc_raw_size(aerospike* p_as, as_key* p_key, uint32_t *size)
 {
     as_status status;
@@ -140,15 +136,15 @@ asc_raw_size(aerospike* p_as, as_key* p_key, uint32_t *size)
     status = aerospike_key_get(p_as, &err, NULL, p_key, &rec);
     if (status != AEROSPIKE_OK) {
         ERROR("aerospike_key_get() returned %d - %s", err.code, err.message);
-        return status;
+        return false;
     }
     *size = as_record_get_int64(rec, "size", 0);
     as_record_destroy(rec);
 
-    return AEROSPIKE_OK;
+    return true;
 }
 
-as_status
+bool
 asc_raw_read(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
 {
     as_ldt lstack;
@@ -165,14 +161,14 @@ asc_raw_read(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
     status = aerospike_lstack_size(p_as, &err, NULL, p_key, &lstack, &lstack_size);
     if (status != AEROSPIKE_OK) {
         ERROR("aerospike_lstack_size() returned %d - %s", err.code, err.message);
-        return status;
+        return false;
     }
 
 	// Peek all the values back again.
 	status = aerospike_lstack_peek(p_as, &err, NULL, p_key, &lstack, lstack_size, &p_list);
     if (status != AEROSPIKE_OK) {
         ERROR("aerospike_lstack_peek() returned %d - %s", err.code, err.message);
-        return status;
+        return false;
     }
 
     // Read the content
@@ -185,5 +181,5 @@ asc_raw_read(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
 	as_list_destroy(p_list);
     p_list = NULL;
 
-    return AEROSPIKE_OK;
+    return true;
 }
