@@ -1,4 +1,5 @@
 #include "asc_utils.h"
+#include <alloca.h>
 
 bool asc_init(aerospike *p_as)
 {
@@ -37,133 +38,182 @@ bool asc_exit(aerospike *p_as)
     return (status == AEROSPIKE_OK);
 }
 
-
-bool asc_write(aerospike *p_as, char *ns, char *file, char *buf, uint32_t size)
-{
-    as_key key;
-    as_record rec;
-    as_status status;
-    as_error err;
-    int retry = 5;
-
-    // Prepare the key
-    as_key_init_str(&key, ns, SET, file);
-
-    // Prepare the record
-    as_record_inita(&rec, 2);
-    as_record_set_int64(&rec, "size", size);
-
 #ifdef LDT_ENABLE
-    as_ldt lstack;
-    as_bytes bval;
-    as_ldt_init(&lstack, "data", AS_LDT_LSTACK, NULL);
+static bool asc_raw_write(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
+{
+    as_error err;
+    as_status status;
 
-    uint32_t offset, length;
-    for (offset = 0; offset < size; offset += length) {
-        length = MIN(CHUNK_SIZE, size - offset);
-        as_bytes_init_wrap(&bval, (uint8_t *)buf + offset, length, false);
-        status = aerospike_lstack_push(p_as, &err, NULL, &key, &lstack, (const as_val*)&bval);
+    uint32_t lstack_size = (size+(CHUNK_SIZE-1))/CHUNK_SIZE;
+    uint32_t offset, chksize;
+
+    // Create a large stack object to use
+    as_ldt lstack;
+	as_ldt_init(&lstack, "data", AS_LDT_LSTACK, NULL);
+
+    // Make arraylist
+    as_arraylist vals;
+    as_arraylist_inita(&vals, lstack_size);
+
+    as_bytes *p_bval;
+    p_bval = (as_bytes *)alloca(lstack_size * sizeof(as_bytes));
+    for (offset = 0; offset < size; offset += chksize, p_bval++) {
+        chksize = MIN(size - offset, CHUNK_SIZE);
+        as_bytes_init_wrap(p_bval, buf + offset, chksize, false);
+        as_arraylist_insert_bytes(&vals, 0, p_bval);
+    }
+
+    // Push bytes
+#if 1
+    // FIXME it's a workaround
+    uint32_t i;
+    for (i = 0; i < vals.size; i++) {
+        status = aerospike_lstack_push(p_as, &err, NULL, p_key, &lstack, vals.elements[i]);
         if (status != AEROSPIKE_OK) {
-            ERROR("aerospike_lstack_push() returned %d - %s", err.code, err.message);
-            break;
+            ERROR("aerospike_lstack_push() - returned %d - %s", err.code, err.message);
+            return false;
         }
     }
 #else
-    as_record_set_raw(&rec, "data", (uint8_t *)buf, size);
+    status = aerospike_lstack_push_all(p_as, &err, NULL, p_key, &lstack, (as_list *)&vals);
+    if (status != AEROSPIKE_OK) {
+        ERROR("aerospike_lstack_push_all() - returned %d - %s", err.code, err.message);
+        return false;
+    }
 #endif
 
-RETRY:
-    // Write the record to the database.
-    status = aerospike_key_put(p_as, &err, NULL, &key, &rec);
-    if (status != AEROSPIKE_OK) {
-        ERROR("aerospike_key_put() returned %d - %s", err.code, err.message);
-        if (retry-- > 0) {
-            sleep(1);
-            goto RETRY;
-        }
-    }
+    // Write metadata
+    as_record rec;
+    as_record_inita(&rec, 1);
+    as_record_set_int64(&rec, "size", size);
+    aerospike_key_put(p_as, &err, NULL, p_key, &rec);
 
-    return (status == AEROSPIKE_OK);
+    return true;
 }
-
-bool asc_read(aerospike *p_as, char *ns, char *file, char *buf, uint32_t size)
+#else
+static bool asc_raw_write(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
 {
-    as_key key;
-    as_record *rec = NULL;
     as_status status;
     as_error err;
 
-    // Prepare the key
-    as_key_init_str(&key, ns, SET, file);
+    // Prepare the record
+    as_record rec;
+    as_record_inita(&rec, 2);
+    as_record_set_int64(&rec, "size", size);
+
+    // Write the record to the database.
+    as_record_set_raw(&rec, "data", (uint8_t *)buf, size);
+    status = aerospike_key_put(p_as, &err, NULL, p_key, &rec);
+    if (status != AEROSPIKE_OK) {
+        ERROR("aerospike_key_put() returned %d - %s", err.code, err.message);
+        return false;
+    }
+
+    return true;
+}
+#endif
 
 #ifdef LDT_ENABLE
-    as_ldt lstack;
-    as_ldt_init(&lstack, "data", AS_LDT_LSTACK, NULL);
+static bool asc_raw_read(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
+{
+    as_status status;
+    as_error err;
 
-    uint32_t cnt;
-    status = aerospike_lstack_size(p_as, &err, NULL, &key, &lstack, &cnt);
+    uint32_t lstack_size;
+    uint32_t offset, chksize;
+
+    // Create a large stack object to use
+    as_ldt lstack;
+	as_ldt_init(&lstack, "data", AS_LDT_LSTACK, NULL);
+
+    // Get stack size
+    status = aerospike_lstack_size(p_as, &err, NULL, p_key, &lstack, &lstack_size);
     if (status != AEROSPIKE_OK) {
         ERROR("aerospike_lstack_size() returned %d - %s", err.code, err.message);
         return false;
     }
 
-    // Peek all the values back again.
-    as_list *p_list = NULL;
-    status = aerospike_lstack_peek(p_as, &err, NULL, &key, &lstack, cnt, &p_list);
+	// Peek all the values back again.
+	as_list* p_list = NULL;
+	status = aerospike_lstack_peek(p_as, &err, NULL, p_key, &lstack, lstack_size, &p_list);
     if (status != AEROSPIKE_OK) {
         ERROR("aerospike_lstack_peek() returned %d - %s", err.code, err.message);
         return false;
     }
 
-    // read lstack
-    const as_arraylist *p_array = (const as_arraylist *)p_list;
-    uint32_t i;
-    for (i = 0; i < cnt; i++) {
-        const as_val* p_val = p_array->elements[i];
-        const as_bytes* p_bytes = (const as_bytes*)p_val;
-        printf("size:%d\n", p_bytes->size);
-        memcpy(buf + (cnt-1-i)*CHUNK_SIZE, p_bytes->value, p_bytes->size);
-        printf("size:%d\n", p_bytes->size);
+    // Read the content
+    as_val** p_val = ((const as_arraylist*)p_list)->elements;
+    for (offset = 0; offset < size; offset += chksize) {
+        const as_bytes* p_bytes = (const as_bytes*)*p_val++;
+        chksize = MIN(size - offset, p_bytes->size);
+        memcpy(buf + offset, p_bytes->value, chksize);
     }
-    as_list_destroy(p_list);
+	as_list_destroy(p_list);
     p_list = NULL;
-#else
-    // Read the (whole) test record from the database.
-    status = aerospike_key_get(p_as, &err, NULL, &key, &rec);
-    if (status != AEROSPIKE_OK) {
-        ERROR("aerospike_key_get() returned %d - %s", err.code, err.message);
-    } else {
-        // Read the record
-        as_bytes *bytes = as_record_get_bytes(rec, "data");
-        memcpy(buf, bytes->value, MIN(bytes->size, size));
-    }
-    as_record_destroy(rec);
-#endif
 
-    return (status == AEROSPIKE_OK);
+    return true;
 }
-
-uint32_t asc_size(aerospike *p_as, char *ns, char *file)
+#else
+static bool asc_raw_read(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
 {
-    as_key key;
-    as_record *rec = NULL;
     as_status status;
     as_error err;
-    uint32_t size;
+
+    // Read the (whole) test record from the database.
+    as_record *rec = NULL;
+    status = aerospike_key_get(p_as, &err, NULL, p_key, &rec);
+    if (status != AEROSPIKE_OK) {
+        ERROR("aerospike_key_get() returned %d - %s", err.code, err.message);
+        return false;
+    }
+
+    // Read the record
+    as_bytes *bytes = as_record_get_bytes(rec, "data");
+    memcpy(buf, bytes->value, MIN(bytes->size, size));
+    as_record_destroy(rec);
+
+    return true;
+}
+#endif
+
+bool asc_write(aerospike *p_as, char *ns, char *file, char *buf, uint32_t size)
+{
+    // Prepare the key
+    as_key key;
+    as_key_init_str(&key, ns, SET, file);
+
+    return asc_raw_write(p_as, &key, (uint8_t *)buf, size);
+}
+
+bool asc_read(aerospike *p_as, char *ns, char *file, char *buf, uint32_t size)
+{
+    // Prepare the key
+    as_key key;
+    as_key_init_str(&key, ns, SET, file);
+
+    return asc_raw_read(p_as, &key, (uint8_t *)buf, size);
+}
+
+bool asc_size(aerospike *p_as, char *ns, char *file, uint32_t *size)
+{
+    as_status status;
+    as_error err;
 
     // Prepare the key
+    as_key key;
     as_key_init_str(&key, ns, SET, file);
 
     // Read metadata
+    as_record *rec = NULL;
     status = aerospike_key_get(p_as, &err, NULL, &key, &rec);
     if (status != AEROSPIKE_OK) {
         ERROR("aerospike_key_get() returned %d - %s", err.code, err.message);
-        return -1;
+        return false;
     }
-
-    size = as_record_get_int64(rec, "size", 0);
+    *size = as_record_get_int64(rec, "size", 0);
     as_record_destroy(rec);
 
-    return size;
+    return true;
 }
+
 

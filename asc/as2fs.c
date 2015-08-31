@@ -17,7 +17,7 @@ int main(int argc, char *argv[])
     aerospike as;
     char *ns, *key, *dir, file[512];
     void *mem;
-    int size;
+    uint32_t size;
     int fd;
 
     if (argc < 3) {
@@ -32,7 +32,7 @@ int main(int argc, char *argv[])
 
     // get file size
     asc_init(&as);
-    size = asc_size(&as, ns, key);
+    asc_size(&as, ns, key, &size);
 
     // create the file
     fd = open(file, O_CREAT|O_TRUNC|O_RDWR, 0644);

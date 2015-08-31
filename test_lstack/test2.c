@@ -112,11 +112,23 @@ asc_raw_write(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
     }
 
     // Push bytes
+#if 1
+    // FIXME it's a workaround
+    uint32_t i;
+    for (i = 0; i < vals.size; i++) {
+        status = aerospike_lstack_push(p_as, &err, NULL, p_key, &lstack, vals.elements[i]);
+        if (status != AEROSPIKE_OK) {
+            ERROR("aerospike_lstack_push() - returned %d - %s", err.code, err.message);
+            return false;
+        }
+    }
+#else
     status = aerospike_lstack_push_all(p_as, &err, NULL, p_key, &lstack, (as_list *)&vals);
     if (status != AEROSPIKE_OK) {
         ERROR("aerospike_lstack_push_all() - returned %d - %s", err.code, err.message);
         return false;
     }
+#endif
 
     // Write metadata
     as_record rec;
