@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <alloca.h>
 #include <assert.h>
 
 #include <aerospike/aerospike.h>
@@ -19,17 +20,19 @@
 
 #include "example_utils.h"
 
+#define ERROR(FORMAT, ...) printf("[ERROR] " FORMAT "\n", __VA_ARGS__)
+#define WARN(FORMAT, ...) printf("[WARN] " FORMAT "\n", __VA_ARGS__)
+#define INFO(FORMAT, ...) printf("[INFO] " FORMAT "\n", __VA_ARGS__)
+
+#define MAX(A, B) ((A) > (B) ? (A) : (B))
+#define MIN(A, B) ((A) < (B) ? (A) : (B))
+
 #define CHUNK_SIZE  (512*1024)
 #define BUFFER_SIZE (8*CHUNK_SIZE)
 
-struct as_bytes_stat_s {
-    int64_t count;
-    int64_t size;
-} as_bytes_stat;
-
-int as_write_bytes(aerospike* p_as, as_key* p_key, uint8_t *buf, int count);
-int as_read_bytes(aerospike* p_as, as_key* p_key, uint8_t *buf, int size);
-int as_count_bytes(aerospike* p_as, as_key* p_key);
+as_status asc_raw_write(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size);
+int asc_raw_read(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size);
+as_status asc_raw_size(aerospike* p_as, as_key* p_key, uint32_t *size);
 
 //==========================================================
 // Large Stack Data Example
@@ -42,8 +45,9 @@ int
 main(int argc, char* argv[])
 {
 	aerospike as;
+    as_status status;
 	as_error err;
-	uint32_t count;
+	uint32_t size;
 
     uint32_t *ptr = (uint32_t *)wbuf;
     int i;
@@ -63,14 +67,17 @@ main(int argc, char* argv[])
     aerospike_key_remove(&as, &err, NULL, &g_key);
 
     // Write bytes
-    as_write_bytes(&as, &g_key, wbuf, BUFFER_SIZE);
+    status = asc_raw_write(&as, &g_key, wbuf, BUFFER_SIZE);
+    assert(status == AEROSPIKE_OK);
 
 	// Count bytes written
-    count = as_count_bytes(&as, &g_key);
-	LOG("%d bytes pushed", count);
+    status = asc_raw_size(&as, &g_key, &size);
+    assert (status == AEROSPIKE_OK);
+	LOG("%d bytes pushed", size);
 
     // Read bytes
-    as_read_bytes(&as, &g_key, rbuf, BUFFER_SIZE);
+    status = asc_raw_read(&as, &g_key, rbuf, BUFFER_SIZE);
+    assert (status == AEROSPIKE_OK);
 
 	// Cleanup and disconnect from the database cluster.
 	aerospike_close(&as, &err);
@@ -83,76 +90,100 @@ main(int argc, char* argv[])
 	return 0;
 }
 
-int
-as_write_bytes(aerospike* p_as, as_key* p_key, uint8_t *buf, int count)
+as_status
+asc_raw_write(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
 {
     as_ldt lstack;
-    as_bytes bval;
+    as_bytes *p_bval;
     as_error err;
-    int size = (count+(CHUNK_SIZE-1))/CHUNK_SIZE;
-    int i;
+    as_status status;
+    uint32_t cnt = (size+(CHUNK_SIZE-1))/CHUNK_SIZE;
+    uint32_t offset;
 
-	// Create a large stack object to use. No need to destroy lstack if using
-	// as_ldt_init() on stack object.
+    // Create a large stack object to use
 	as_ldt_init(&lstack, "data", AS_LDT_LSTACK, NULL);
 
+    // Make arraylist
+    as_arraylist vals;
+    as_arraylist_inita(&vals, cnt);
+
+    p_bval = alloca(cnt * sizeof(as_bytes));
+    for (offset = 0; offset < size; offset += CHUNK_SIZE, p_bval++) {
+        as_bytes_init_wrap(p_bval, buf + offset, CHUNK_SIZE, false);
+        as_arraylist_insert_bytes(&vals, 0, p_bval);
+    }
+
     // Push bytes
-    for (i = 0; i < count; i += CHUNK_SIZE) {
-        as_bytes_init_wrap(&bval, buf + i, CHUNK_SIZE, false);
-        assert (aerospike_lstack_push(p_as, &err, NULL, p_key, &lstack, (const as_val*)&bval) == AEROSPIKE_OK);
+    status = aerospike_lstack_push_all(p_as, &err, NULL, p_key, &lstack, (as_list *)&vals);
+    if (status != AEROSPIKE_OK) {
+        ERROR("aerospike_lstack_push_all() - returned %d - %s", err.code, err.message);
+        return status;
     }
 
     // Write metadata
     as_record rec;
-    as_record_inita(&rec, 2);
-    as_record_set_int64(&rec, "count", count);
+    as_record_inita(&rec, 1);
     as_record_set_int64(&rec, "size", size);
     aerospike_key_put(p_as, &err, NULL, p_key, &rec);
-    //LOG("as_write_bytes: count=%d, size=%d", count, size);
 
-    return 0;
+    return AEROSPIKE_OK;
 }
 
-int
-as_count_bytes(aerospike* p_as, as_key* p_key)
+as_status
+asc_raw_size(aerospike* p_as, as_key* p_key, uint32_t *size)
 {
+    as_status status;
     as_error err;
-    int count, size;
 
     // Read metadata
     as_record *rec = NULL;
-    assert (aerospike_key_get(p_as, &err, NULL, p_key, &rec) == AEROSPIKE_OK);
-    count = as_record_get_int64(rec, "count", 0);
-    size = as_record_get_int64(rec, "size", 0);
+    status = aerospike_key_get(p_as, &err, NULL, p_key, &rec);
+    if (status != AEROSPIKE_OK) {
+        ERROR("aerospike_key_get() returned %d - %s", err.code, err.message);
+        return status;
+    }
+    *size = as_record_get_int64(rec, "size", 0);
     as_record_destroy(rec);
-    //LOG("as_count_bytes: count=%d, size=%d", count, size);
 
-    return count;
+    return AEROSPIKE_OK;
 }
 
-int
-as_read_bytes(aerospike* p_as, as_key* p_key, uint8_t *buf, int count)
+as_status
+asc_raw_read(aerospike* p_as, as_key* p_key, uint8_t *buf, uint32_t size)
 {
     as_ldt lstack;
-    as_error err; int size = (count+(CHUNK_SIZE-1))/CHUNK_SIZE;
+    as_status status;
+    as_error err;
 	as_list* p_list = NULL;
+    uint32_t lstack_size;
+    uint32_t offset, chksize;
 
+    // Create a large stack object to use
 	as_ldt_init(&lstack, "data", AS_LDT_LSTACK, NULL);
 
-	// Peek all the values back again.
-	assert (aerospike_lstack_peek(p_as, &err, NULL, p_key, &lstack, size, &p_list) == AEROSPIKE_OK);
+    // Get stack size
+    status = aerospike_lstack_size(p_as, &err, NULL, p_key, &lstack, &lstack_size);
+    if (status != AEROSPIKE_OK) {
+        ERROR("aerospike_lstack_size() returned %d - %s", err.code, err.message);
+        return status;
+    }
 
-	// See if the elements match what we expect.
-    const as_arraylist* p_array = (const as_arraylist*)p_list;
-    int i;
-    for (i = 0; i < size; i++) {
-        const as_val* p_val = p_array->elements[i];
-        const as_bytes* p_bytes = (const as_bytes*)p_val;
-		//LOG("   [%d] peek - type = %d, size = %d", i, as_val_type(p_val), p_bytes->size);
-        memcpy(buf + (size-1-i)*CHUNK_SIZE, p_bytes->value, p_bytes->size);
+	// Peek all the values back again.
+	status = aerospike_lstack_peek(p_as, &err, NULL, p_key, &lstack, lstack_size, &p_list);
+    if (status != AEROSPIKE_OK) {
+        ERROR("aerospike_lstack_peek() returned %d - %s", err.code, err.message);
+        return status;
+    }
+
+    // Read the content
+    as_val** p_val = ((const as_arraylist*)p_list)->elements;
+    for (offset = 0; offset < size; offset += chksize) {
+        const as_bytes* p_bytes = (const as_bytes*)*p_val++;
+        chksize = MIN(size - offset, p_bytes->size);
+        memcpy(buf + offset, p_bytes->value, chksize);
     }
 	as_list_destroy(p_list);
     p_list = NULL;
 
-    return 0;
+    return AEROSPIKE_OK;
 }
