@@ -93,7 +93,7 @@ endif
 ##  MAIN TARGETS                                                             ##
 ###############################################################################
 
-TARGETS = fs2as fs2as-inotify as2fs
+TARGETS = fs2as fs2as-inotify fs2as-dir as2fs
 
 all: $(TARGETS)
 
@@ -105,6 +105,9 @@ fs2as: fs2as.c asc_utils.c
 
 fs2as-inotify: fs2as-inotify.c asc_utils.c inotify_utils.cpp
 	g++ -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS)
+
+fs2as-dir: fs2as-dir.c asc_utils.c
+	$(CC) -o $@ $^ $(AEROSPIKE)/target/$(PLATFORM)/lib/libaerospike.a $(LDFLAGS) $(CFLAGS)
 
 .PHONY: clean
 clean:
